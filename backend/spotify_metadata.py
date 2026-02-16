@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import time
 from pathlib import Path
@@ -12,6 +13,7 @@ from bs4 import BeautifulSoup
 EMBED_PREFIX = "https://open.spotify.com/embed/track/"
 SPOTIFY_TRACK_API_PREFIX = "https://api.spotify.com/v1/tracks/"
 SPOTIFY_ARTIST_API_PREFIX = "https://api.spotify.com/v1/artists/"
+SPOTIFY_ACCOUNTS_TOKEN_URL = "https://accounts.spotify.com/api/token"
 SPOTIFY_WEB_TOKEN_URL = (
     "https://open.spotify.com/get_access_token?reason=transport&productType=web_player"
 )
@@ -20,7 +22,10 @@ UA = (
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 )
 DEFAULT_DELAY_SECONDS = 0.2
-_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
+_TOKEN_CACHE = {
+    "client_credentials": {"token": "", "expires_at": 0.0},
+    "web_player": {"token": "", "expires_at": 0.0},
+}
 
 
 def _blank_metadata() -> dict[str, str]:
@@ -162,16 +167,53 @@ def _extract_track_artist_from_html(html: str) -> tuple[str | None, str | None]:
     return track_name, artists
 
 
-def _get_spotify_access_token(
+def _get_client_credentials_token(
+    session: requests.Session, timeout: int = 20, force_refresh: bool = False
+) -> str:
+    client_id = str(os.getenv("SPOTIFY_CLIENT_ID") or "").strip()
+    client_secret = str(os.getenv("SPOTIFY_CLIENT_SECRET") or "").strip()
+    if not client_id or not client_secret:
+        raise ValueError(
+            "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET are not configured."
+        )
+
+    now = time.time()
+    cache = _TOKEN_CACHE["client_credentials"]
+    if not force_refresh and cache["token"] and now < (cache["expires_at"] - 30):
+        return str(cache["token"])
+
+    response = session.post(
+        SPOTIFY_ACCOUNTS_TOKEN_URL,
+        data={"grant_type": "client_credentials"},
+        auth=(client_id, client_secret),
+        headers={"User-Agent": UA},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    token = str(payload.get("access_token") or "").strip()
+    if not token:
+        raise ValueError("Spotify client-credentials token was missing in response.")
+
+    expires_in = payload.get("expires_in")
+    if isinstance(expires_in, (int, float)):
+        expires_at = now + float(expires_in)
+    else:
+        expires_at = now + 300
+
+    cache["token"] = token
+    cache["expires_at"] = expires_at
+    return token
+
+
+def _get_web_player_token(
     session: requests.Session, timeout: int = 20, force_refresh: bool = False
 ) -> str:
     now = time.time()
-    if (
-        not force_refresh
-        and _TOKEN_CACHE["token"]
-        and now < (_TOKEN_CACHE["expires_at"] - 30)
-    ):
-        return str(_TOKEN_CACHE["token"])
+    cache = _TOKEN_CACHE["web_player"]
+    if not force_refresh and cache["token"] and now < (cache["expires_at"] - 30):
+        return str(cache["token"])
 
     response = session.get(
         SPOTIFY_WEB_TOKEN_URL,
@@ -191,19 +233,40 @@ def _get_spotify_access_token(
     else:
         expires_at = now + 300
 
-    _TOKEN_CACHE["token"] = token
-    _TOKEN_CACHE["expires_at"] = expires_at
+    cache["token"] = token
+    cache["expires_at"] = expires_at
     return token
+
+
+def _get_spotify_access_token(
+    session: requests.Session, timeout: int = 20, force_refresh: bool = False
+) -> str:
+    errors = []
+    providers = [_get_client_credentials_token, _get_web_player_token]
+    for provider in providers:
+        try:
+            return provider(session=session, timeout=timeout, force_refresh=force_refresh)
+        except Exception as exc:
+            errors.append(f"{provider.__name__}: {exc}")
+
+    joined = " | ".join(errors) if errors else "No token providers available."
+    raise RuntimeError(f"Unable to obtain Spotify token. {joined}")
 
 
 def _spotify_api_get(
     session: requests.Session, url: str, timeout: int = 20
 ) -> dict:
     response = None
+    last_error = None
     for attempt in range(2):
-        token = _get_spotify_access_token(
-            session=session, timeout=timeout, force_refresh=(attempt == 1)
-        )
+        try:
+            token = _get_spotify_access_token(
+                session=session, timeout=timeout, force_refresh=(attempt == 1)
+            )
+        except Exception as exc:
+            last_error = exc
+            continue
+
         response = session.get(
             url,
             headers={"Authorization": f"Bearer {token}", "User-Agent": UA},
@@ -217,6 +280,8 @@ def _spotify_api_get(
 
     if response is not None:
         response.raise_for_status()
+    if last_error is not None:
+        raise last_error
     return {}
 
 

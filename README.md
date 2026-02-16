@@ -33,6 +33,15 @@ source .venv/bin/activate
 pip install -r backend/requirements.txt
 ```
 
+Optional but recommended for full metadata (genre/album/release-date/duration/etc.):
+
+```bash
+export SPOTIFY_CLIENT_ID=your_spotify_client_id
+export SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+```
+
+Without those env vars, backend falls back to embed scraping and can usually only fill `Track Name` + `Artist`.
+
 ## 2) Run the app
 
 In terminal 1 (backend):
@@ -85,3 +94,4 @@ It outputs a new workbook with all existing columns preserved plus:
 
 - This uses Spotify public web endpoints (with fallback HTML scraping) and may require tweaks if Spotify changes their web format.
 - A small request delay is included to reduce rate limiting.
+- For Vercel: add `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` in Project Settings -> Environment Variables for full metadata in production.

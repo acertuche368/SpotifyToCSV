@@ -213,6 +213,7 @@ function App() {
       const nextRows = rows.map((row) => ({ ...row }));
       let completed = 0;
       let updated = 0;
+      let extendedUpdated = 0;
       let failed = 0;
 
       for (const target of targets) {
@@ -259,6 +260,16 @@ function App() {
             )
           ) {
             updated += 1;
+            if (
+              apiRow.genre ||
+              apiRow.album ||
+              apiRow.release_date ||
+              apiRow.duration ||
+              apiRow.explicit ||
+              apiRow.popularity
+            ) {
+              extendedUpdated += 1;
+            }
           } else {
             failed += 1;
           }
@@ -273,9 +284,14 @@ function App() {
         );
       }
 
-      setStatus(
-        `Done. Processed ${targets.length} URL(s): ${updated} updated, ${failed} failed.`
-      );
+      const summary = `Done. Processed ${targets.length} URL(s): ${updated} updated, ${failed} failed.`;
+      if (updated > 0 && extendedUpdated === 0) {
+        setStatus(
+          `${summary} Extended metadata (genre/album/etc.) was not available from the current backend source.`
+        );
+      } else {
+        setStatus(summary);
+      }
     } catch (error) {
       setStatus(
         `Metadata fill failed: ${error.message}. Ensure backend is running on port 8000.`
