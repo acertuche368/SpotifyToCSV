@@ -98,4 +98,5 @@ It outputs a new workbook with all existing columns preserved plus:
 - For Vercel full-stack deploy in this repo:
   - Frontend calls `/api/fill-from-urls`
   - Python serverless API is provided in `api/index.py`
-  - Root `requirements.txt` includes backend deps for Python functions
+  - Root `requirements.txt` contains only lightweight API deps for faster serverless builds
+  - `backend/requirements.txt` is still used for local CLI/XLSX workflows (includes pandas/openpyxl)

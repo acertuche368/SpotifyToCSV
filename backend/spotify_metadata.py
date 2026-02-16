@@ -6,7 +6,6 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
@@ -416,6 +415,8 @@ def fill_rows(urls: list[str], delay_seconds: float = DEFAULT_DELAY_SECONDS) -> 
 
 
 def fill_dataframe(df: pd.DataFrame, url_column: str = "Spotify URL") -> pd.DataFrame:
+    import pandas as pd
+
     if url_column not in df.columns:
         if "URL" in df.columns:
             url_column = "URL"
@@ -445,6 +446,8 @@ def process_workbook(
     sheet_name: str = "Tracks",
     url_column: str = "Spotify URL",
 ) -> Path:
+    import pandas as pd
+
     input_path = Path(input_path)
     if output_path is None:
         output_path = input_path.with_name(f"{input_path.stem}_with_metadata.xlsx")
