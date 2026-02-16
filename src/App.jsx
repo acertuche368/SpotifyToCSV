@@ -80,6 +80,11 @@ function App() {
   };
 
   const importWorkbook = async (event) => {
+    if (isFilling) {
+      event.target.value = "";
+      return;
+    }
+
     const [file] = event.target.files ?? [];
     if (!file) {
       return;
@@ -114,45 +119,66 @@ function App() {
       return;
     }
 
-    const urls = rows.map((row) => row.url.trim());
-    if (!urls.some(Boolean)) {
+    const targets = rows
+      .map((row, index) => ({ index, url: row.url.trim() }))
+      .filter((entry) => entry.url);
+
+    if (!targets.length) {
       setStatus("No Spotify URLs found in the URL column.");
       return;
     }
 
     setIsFilling(true);
-    setStatus("Fetching Track Name and Artist from Spotify...");
+    setStatus(`Starting metadata fill for ${targets.length} URL(s)...`);
 
     try {
-      const response = await fetch(`${apiBase}/api/fill-from-urls`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls })
-      });
+      const nextRows = rows.map((row) => ({ ...row }));
+      let completed = 0;
+      let updated = 0;
+      let failed = 0;
 
-      if (!response.ok) {
-        throw new Error(`Backend request failed (${response.status}).`);
-      }
+      for (const target of targets) {
+        try {
+          const response = await fetch(`${apiBase}/api/fill-from-urls`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ urls: [target.url] })
+          });
 
-      const payload = await response.json();
-      const enrichedRows = rows.map((row, index) => {
-        const apiRow = payload.rows?.[index];
-        if (!apiRow) {
-          return row;
+          if (!response.ok) {
+            throw new Error(`Backend request failed (${response.status}).`);
+          }
+
+          const payload = await response.json();
+          const apiRow = payload.rows?.[0];
+
+          if (apiRow) {
+            nextRows[target.index] = {
+              url: apiRow.url ?? nextRows[target.index].url,
+              artist: apiRow.artist ?? nextRows[target.index].artist,
+              trackName: apiRow.track_name ?? nextRows[target.index].trackName
+            };
+          }
+
+          if (apiRow && (apiRow.artist || apiRow.track_name)) {
+            updated += 1;
+          } else {
+            failed += 1;
+          }
+        } catch (error) {
+          failed += 1;
         }
 
-        return {
-          url: apiRow.url ?? row.url,
-          artist: apiRow.artist ?? row.artist,
-          trackName: apiRow.track_name ?? row.trackName
-        };
-      });
+        completed += 1;
+        setRows([...nextRows]);
+        setStatus(
+          `Filling metadata: ${completed}/${targets.length} completed (${updated} updated, ${failed} failed).`
+        );
+      }
 
-      const filledCount = enrichedRows.filter(
-        (row) => row.artist || row.trackName
-      ).length;
-      setRows(enrichedRows);
-      setStatus(`Metadata filled for ${filledCount} row(s).`);
+      setStatus(
+        `Done. Processed ${targets.length} URL(s): ${updated} updated, ${failed} failed.`
+      );
     } catch (error) {
       setStatus(
         `Metadata fill failed: ${error.message}. Ensure backend is running on port 8000.`
@@ -182,10 +208,11 @@ function App() {
           placeholder="https://open.spotify.com/track/..."
           value={pasteText}
           onChange={(event) => setPasteText(event.target.value)}
+          disabled={isFilling}
         />
 
         <div className="button-row">
-          <button type="button" onClick={loadUrls}>
+          <button type="button" onClick={loadUrls} disabled={isFilling}>
             Load URLs Into Table
           </button>
           <label className="file-button">
@@ -194,12 +221,13 @@ function App() {
               type="file"
               accept=".csv,.xlsx,.xls"
               onChange={importWorkbook}
+              disabled={isFilling}
             />
           </label>
-          <button type="button" className="ghost" onClick={addRow}>
+          <button type="button" className="ghost" onClick={addRow} disabled={isFilling}>
             Add Empty Row
           </button>
-          <button type="button" className="ghost" onClick={clearAll}>
+          <button type="button" className="ghost" onClick={clearAll} disabled={isFilling}>
             Clear
           </button>
         </div>
@@ -214,7 +242,7 @@ function App() {
             <button type="button" onClick={fillMetadata} disabled={isFilling}>
               {isFilling ? "Filling..." : "Fill Track + Artist"}
             </button>
-            <button type="button" className="ghost" onClick={exportWorkbook}>
+            <button type="button" className="ghost" onClick={exportWorkbook} disabled={isFilling}>
               Export XLSX
             </button>
           </div>
@@ -241,6 +269,7 @@ function App() {
                           updateCell(index, "url", event.target.value)
                         }
                         placeholder="Spotify URL"
+                        disabled={isFilling}
                       />
                     </td>
                     <td>
@@ -250,6 +279,7 @@ function App() {
                           updateCell(index, "artist", event.target.value)
                         }
                         placeholder="Artist"
+                        disabled={isFilling}
                       />
                     </td>
                     <td>
@@ -259,6 +289,7 @@ function App() {
                           updateCell(index, "trackName", event.target.value)
                         }
                         placeholder="Track Name"
+                        disabled={isFilling}
                       />
                     </td>
                     <td className="action-cell">
@@ -266,6 +297,7 @@ function App() {
                         type="button"
                         className="danger"
                         onClick={() => removeRow(index)}
+                        disabled={isFilling}
                       >
                         Delete
                       </button>

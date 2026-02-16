@@ -29,7 +29,10 @@ def track_id_from_url(url: str) -> str | None:
         parts = cleaned.split(":")
         return parts[-1] if parts else None
 
-    direct_match = re.search(r"open\.spotify\.com/track/([A-Za-z0-9]+)", cleaned)
+    direct_match = re.search(
+        r"open\.spotify\.com/(?:intl-[a-z]{2}/)?(?:embed/)?track/([A-Za-z0-9]+)",
+        cleaned,
+    )
     if direct_match:
         return direct_match.group(1)
 
@@ -39,54 +42,77 @@ def track_id_from_url(url: str) -> str | None:
         return None
 
     path_parts = [segment for segment in parsed.path.split("/") if segment]
-    if len(path_parts) >= 2 and path_parts[0] == "track":
-        return path_parts[1]
+    if "track" in path_parts:
+        track_index = path_parts.index("track")
+        if track_index + 1 < len(path_parts):
+            return path_parts[track_index + 1]
     return None
 
 
 def _extract_track_artist_from_html(html: str) -> tuple[str | None, str | None]:
     soup = BeautifulSoup(html, "html.parser")
+
+    def meta_content(name: str) -> str | None:
+        tag = soup.find("meta", attrs={"property": name})
+        if not tag:
+            return None
+        value = str(tag.get("content", "")).strip()
+        return value or None
+
+    track_name = meta_content("og:title")
+    description = meta_content("og:description")
+
+    artists = None
+    if description:
+        by_match = re.search(r"\bby\s+(.+?)\s+on\s+Spotify\b", description, re.I)
+        if by_match:
+            artists = by_match.group(1).strip()
+        else:
+            parts = [part.strip() for part in description.split("·") if part.strip()]
+            if len(parts) >= 2:
+                artists = parts[1]
+            elif len(parts) == 1 and track_name and parts[0].lower() != track_name.lower():
+                artists = parts[0]
+
     page_text = soup.get_text("\n", strip=True)
     lines = [line.strip() for line in page_text.split("\n") if line.strip()]
 
-    track_name = None
-    for line in lines:
-        if line in {"#", "##", "E"}:
-            continue
-        lower = line.lower()
-        if lower.startswith("preview of spotify"):
-            continue
-        if lower.startswith("sign up to get unlimited songs"):
-            continue
-        if lower.startswith("listen on spotify"):
-            continue
-        track_name = line
-        break
+    if not track_name:
+        for line in lines:
+            if line in {"#", "##", "E"}:
+                continue
+            lower = line.lower()
+            if lower.startswith("preview of spotify"):
+                continue
+            if lower.startswith("sign up to get unlimited songs"):
+                continue
+            if lower.startswith("listen on spotify"):
+                continue
+            track_name = line
+            break
 
-    ignored_links = {
-        "Spotify",
-        "Preview of Spotify",
-        "Listen on Spotify",
-    }
-    artist_links = []
-    for anchor in soup.find_all("a"):
-        text = anchor.get_text(strip=True)
-        if not text or text in ignored_links:
-            continue
-        if track_name and text == track_name:
-            continue
-        artist_links.append(text)
+    if not artists:
+        artist_links = []
+        for anchor in soup.find_all("a", href=True):
+            href = str(anchor.get("href", ""))
+            if "/artist/" not in href:
+                continue
+            text = anchor.get_text(strip=True)
+            if not text:
+                continue
+            artist_links.append(text)
 
-    deduped = []
-    seen = set()
-    for artist in artist_links:
-        key = artist.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(artist)
+        deduped = []
+        seen = set()
+        for artist in artist_links:
+            key = artist.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(artist)
 
-    artists = ", ".join(deduped) if deduped else None
+        artists = ", ".join(deduped) if deduped else None
+
     return track_name, artists
 
 
