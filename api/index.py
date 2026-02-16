@@ -30,12 +30,12 @@ app = FastAPI(title="Spotify Metadata API (Vercel)", version="1.0.0")
 
 
 @app.get("/health")
+@app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/fill-from-urls", response_model=FillResponse)
-def fill_from_urls(payload: FillRequest) -> FillResponse:
+def _fill_from_urls(payload: FillRequest) -> FillResponse:
     try:
         result_rows = fill_rows(payload.urls)
     except Exception as exc:
@@ -45,3 +45,9 @@ def fill_from_urls(payload: FillRequest) -> FillResponse:
         ) from exc
 
     return FillResponse(rows=result_rows)
+
+
+@app.post("/fill-from-urls", response_model=FillResponse)
+@app.post("/api/fill-from-urls", response_model=FillResponse)
+def fill_from_urls(payload: FillRequest) -> FillResponse:
+    return _fill_from_urls(payload)
