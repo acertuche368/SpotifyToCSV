@@ -215,6 +215,7 @@ function App() {
       let updated = 0;
       let extendedUpdated = 0;
       let failed = 0;
+      let firstErrorMessage = "";
 
       for (const target of targets) {
         try {
@@ -225,7 +226,18 @@ function App() {
           });
 
           if (!response.ok) {
-            throw new Error(`Backend request failed (${response.status}).`);
+            let detail = "";
+            try {
+              const errorPayload = await response.json();
+              detail = errorPayload?.detail
+                ? `: ${String(errorPayload.detail)}`
+                : "";
+            } catch {
+              detail = "";
+            }
+            throw new Error(
+              `Backend request failed (${response.status})${detail}`
+            );
           }
 
           const payload = await response.json();
@@ -275,6 +287,12 @@ function App() {
           }
         } catch (error) {
           failed += 1;
+          if (!firstErrorMessage) {
+            firstErrorMessage =
+              error instanceof Error
+                ? error.message
+                : "Unknown request error";
+          }
         }
 
         completed += 1;
@@ -289,6 +307,8 @@ function App() {
         setStatus(
           `${summary} Extended metadata (genre/album/etc.) was not available from the current backend source.`
         );
+      } else if (updated === 0 && failed > 0 && firstErrorMessage) {
+        setStatus(`${summary} First error: ${firstErrorMessage}`);
       } else {
         setStatus(summary);
       }

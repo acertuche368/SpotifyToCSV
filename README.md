@@ -95,3 +95,7 @@ It outputs a new workbook with all existing columns preserved plus:
 - This uses Spotify public web endpoints (with fallback HTML scraping) and may require tweaks if Spotify changes their web format.
 - A small request delay is included to reduce rate limiting.
 - For Vercel: add `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` in Project Settings -> Environment Variables for full metadata in production.
+- For Vercel full-stack deploy in this repo:
+  - Frontend calls `/api/fill-from-urls`
+  - Python serverless API is provided in `api/index.py`
+  - Root `requirements.txt` includes backend deps for Python functions
