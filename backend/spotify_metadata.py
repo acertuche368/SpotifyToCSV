@@ -10,11 +10,57 @@ import requests
 from bs4 import BeautifulSoup
 
 EMBED_PREFIX = "https://open.spotify.com/embed/track/"
+SPOTIFY_TRACK_API_PREFIX = "https://api.spotify.com/v1/tracks/"
+SPOTIFY_ARTIST_API_PREFIX = "https://api.spotify.com/v1/artists/"
+SPOTIFY_WEB_TOKEN_URL = (
+    "https://open.spotify.com/get_access_token?reason=transport&productType=web_player"
+)
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) "
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 )
 DEFAULT_DELAY_SECONDS = 0.2
+_TOKEN_CACHE = {"token": "", "expires_at": 0.0}
+
+
+def _blank_metadata() -> dict[str, str]:
+    return {
+        "artist": "",
+        "track_name": "",
+        "genre": "",
+        "album": "",
+        "release_date": "",
+        "duration": "",
+        "explicit": "",
+        "popularity": "",
+    }
+
+
+def _format_duration(duration_ms: int | None) -> str:
+    if not isinstance(duration_ms, int) or duration_ms <= 0:
+        return ""
+
+    total_seconds = duration_ms // 1000
+    minutes, seconds = divmod(total_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    deduped = []
+    seen = set()
+    for value in values:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(cleaned)
+    return deduped
 
 
 def track_id_from_url(url: str) -> str | None:
@@ -116,6 +162,64 @@ def _extract_track_artist_from_html(html: str) -> tuple[str | None, str | None]:
     return track_name, artists
 
 
+def _get_spotify_access_token(
+    session: requests.Session, timeout: int = 20, force_refresh: bool = False
+) -> str:
+    now = time.time()
+    if (
+        not force_refresh
+        and _TOKEN_CACHE["token"]
+        and now < (_TOKEN_CACHE["expires_at"] - 30)
+    ):
+        return str(_TOKEN_CACHE["token"])
+
+    response = session.get(
+        SPOTIFY_WEB_TOKEN_URL,
+        headers={"User-Agent": UA, "Accept": "application/json"},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    token = str(payload.get("accessToken") or "").strip()
+    if not token:
+        raise ValueError("Spotify web access token was missing in response.")
+
+    expiry_ms = payload.get("accessTokenExpirationTimestampMs")
+    if isinstance(expiry_ms, (int, float)):
+        expires_at = float(expiry_ms) / 1000.0
+    else:
+        expires_at = now + 300
+
+    _TOKEN_CACHE["token"] = token
+    _TOKEN_CACHE["expires_at"] = expires_at
+    return token
+
+
+def _spotify_api_get(
+    session: requests.Session, url: str, timeout: int = 20
+) -> dict:
+    response = None
+    for attempt in range(2):
+        token = _get_spotify_access_token(
+            session=session, timeout=timeout, force_refresh=(attempt == 1)
+        )
+        response = session.get(
+            url,
+            headers={"Authorization": f"Bearer {token}", "User-Agent": UA},
+            timeout=timeout,
+        )
+        if response.status_code == 401 and attempt == 0:
+            continue
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, dict) else {}
+
+    if response is not None:
+        response.raise_for_status()
+    return {}
+
+
 def fetch_track_artist(
     spotify_url: str, session: requests.Session, timeout: int = 20
 ) -> tuple[str | None, str | None]:
@@ -129,30 +233,116 @@ def fetch_track_artist(
     return _extract_track_artist_from_html(response.text)
 
 
+def fetch_track_metadata(
+    spotify_url: str,
+    session: requests.Session,
+    artist_genre_cache: dict[str, list[str]],
+    timeout: int = 20,
+) -> dict[str, str]:
+    metadata = _blank_metadata()
+
+    track_id = track_id_from_url(spotify_url)
+    if not track_id:
+        return metadata
+
+    try:
+        track_payload = _spotify_api_get(
+            session, f"{SPOTIFY_TRACK_API_PREFIX}{track_id}", timeout=timeout
+        )
+        track_name = str(track_payload.get("name") or "").strip()
+        artists_data = track_payload.get("artists") or []
+        artists = []
+        genres = []
+
+        for artist_entry in artists_data:
+            if not isinstance(artist_entry, dict):
+                continue
+
+            artist_name = str(artist_entry.get("name") or "").strip()
+            if artist_name:
+                artists.append(artist_name)
+
+            artist_id = str(artist_entry.get("id") or "").strip()
+            if not artist_id:
+                continue
+
+            if artist_id not in artist_genre_cache:
+                try:
+                    artist_payload = _spotify_api_get(
+                        session, f"{SPOTIFY_ARTIST_API_PREFIX}{artist_id}", timeout=timeout
+                    )
+                    raw_genres = artist_payload.get("genres") or []
+                    artist_genre_cache[artist_id] = _dedupe_strings(
+                        [str(genre) for genre in raw_genres]
+                    )
+                except Exception:
+                    artist_genre_cache[artist_id] = []
+
+            genres.extend(artist_genre_cache[artist_id])
+
+        album_data = track_payload.get("album")
+        album_data = album_data if isinstance(album_data, dict) else {}
+
+        explicit_value = track_payload.get("explicit")
+        if isinstance(explicit_value, bool):
+            explicit = "Yes" if explicit_value else "No"
+        else:
+            explicit = ""
+
+        popularity_value = track_payload.get("popularity")
+        popularity = (
+            str(popularity_value)
+            if isinstance(popularity_value, int)
+            else ""
+        )
+
+        metadata["track_name"] = track_name
+        metadata["artist"] = ", ".join(_dedupe_strings(artists))
+        metadata["genre"] = ", ".join(_dedupe_strings(genres))
+        metadata["album"] = str(album_data.get("name") or "").strip()
+        metadata["release_date"] = str(album_data.get("release_date") or "").strip()
+        metadata["duration"] = _format_duration(track_payload.get("duration_ms"))
+        metadata["explicit"] = explicit
+        metadata["popularity"] = popularity
+
+        if metadata["track_name"] or metadata["artist"] or metadata["genre"]:
+            return metadata
+    except Exception:
+        pass
+
+    try:
+        fallback_track, fallback_artist = fetch_track_artist(
+            spotify_url=spotify_url,
+            session=session,
+            timeout=timeout,
+        )
+        metadata["track_name"] = fallback_track or ""
+        metadata["artist"] = fallback_artist or ""
+    except Exception:
+        pass
+
+    return metadata
+
+
 def fill_rows(urls: list[str], delay_seconds: float = DEFAULT_DELAY_SECONDS) -> list[dict]:
     session = requests.Session()
+    artist_genre_cache: dict[str, list[str]] = {}
     output_rows = []
     total = len(urls)
 
     for index, value in enumerate(urls, start=1):
         url = str(value or "").strip()
         if not url:
-            output_rows.append({"url": "", "artist": "", "track_name": ""})
+            output_rows.append({"url": "", **_blank_metadata()})
             continue
 
-        track_name = ""
-        artist = ""
-        try:
-            fetched_track, fetched_artist = fetch_track_artist(url, session)
-            track_name = fetched_track or ""
-            artist = fetched_artist or ""
-        except Exception:
-            track_name = ""
-            artist = ""
-
-        output_rows.append(
-            {"url": url, "artist": artist, "track_name": track_name}
+        metadata = fetch_track_metadata(
+            spotify_url=url,
+            session=session,
+            artist_genre_cache=artist_genre_cache,
         )
+
+        output_rows.append({"url": url, **metadata})
 
         if delay_seconds > 0 and index < total:
             time.sleep(delay_seconds)
@@ -175,6 +365,12 @@ def fill_dataframe(df: pd.DataFrame, url_column: str = "Spotify URL") -> pd.Data
     out = df.copy()
     out["Track Name"] = [row["track_name"] for row in filled_rows]
     out["Artist"] = [row["artist"] for row in filled_rows]
+    out["Genre"] = [row["genre"] for row in filled_rows]
+    out["Album"] = [row["album"] for row in filled_rows]
+    out["Release Date"] = [row["release_date"] for row in filled_rows]
+    out["Duration"] = [row["duration"] for row in filled_rows]
+    out["Explicit"] = [row["explicit"] for row in filled_rows]
+    out["Popularity"] = [row["popularity"] for row in filled_rows]
     return out
 
 

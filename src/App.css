@@ -151,7 +151,7 @@ button:disabled {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 720px;
+  min-width: 1500px;
 }
 
 th,
@@ -176,7 +176,7 @@ td input {
 }
 
 .action-cell {
-  width: 88px;
+  width: 110px;
 }
 
 .empty-state {

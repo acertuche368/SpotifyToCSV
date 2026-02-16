@@ -6,9 +6,16 @@ This project gives you:
   - `URL`
   - `Artist`
   - `Track Name`
+  - `Genre`
+  - `Album`
+  - `Release Date`
+  - `Duration`
+  - `Explicit`
+  - `Popularity`
 - Paste support for newline-separated Spotify track URLs
 - CSV/XLSX import and XLSX export
-- A Python backend that fills `Artist` and `Track Name` by scraping Spotify embed pages (no API keys required)
+- A Python backend that fills metadata (no API keys required):
+  - `Artist`, `Track Name`, `Genre`, `Album`, `Release Date`, `Duration`, `Explicit`, `Popularity`
 
 ## 1) Install dependencies
 
@@ -46,7 +53,7 @@ Open `http://localhost:5173`.
 ## 3) Use it
 
 1. Paste Spotify URLs (one per line) and click `Load URLs Into Table`.
-2. Click `Fill Track + Artist` to fetch metadata from Python backend.
+2. Click `Fill Metadata` to fetch metadata from Python backend.
 3. Edit any cell manually if needed.
 4. Click `Export XLSX` to download `spotify_tracks.xlsx`.
 
@@ -67,8 +74,14 @@ It outputs a new workbook with all existing columns preserved plus:
 
 - `Track Name`
 - `Artist`
+- `Genre`
+- `Album`
+- `Release Date`
+- `Duration`
+- `Explicit`
+- `Popularity`
 
 ## Notes
 
-- This uses simple scraping of Spotify embed pages and may require parser tweaks if Spotify changes markup.
+- This uses Spotify public web endpoints (with fallback HTML scraping) and may require tweaks if Spotify changes their web format.
 - A small request delay is included to reduce rate limiting.
