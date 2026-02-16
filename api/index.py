@@ -14,12 +14,6 @@ class FillRow(BaseModel):
     url: str
     artist: str = ""
     track_name: str = ""
-    genre: str = ""
-    album: str = ""
-    release_date: str = ""
-    duration: str = ""
-    explicit: str = ""
-    popularity: str = ""
 
 
 class FillResponse(BaseModel):

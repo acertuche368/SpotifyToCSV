@@ -5,35 +5,13 @@ import "./App.css";
 const EMPTY_ROW = {
   url: "",
   artist: "",
-  trackName: "",
-  genre: "",
-  album: "",
-  releaseDate: "",
-  duration: "",
-  explicit: "",
-  popularity: ""
+  trackName: ""
 };
-const HEADERS = [
-  "URL",
-  "Artist",
-  "Track Name",
-  "Genre",
-  "Album",
-  "Release Date",
-  "Duration",
-  "Explicit",
-  "Popularity"
-];
+const HEADERS = ["URL", "Artist", "Track Name"];
 const EDITABLE_COLUMNS = [
   { key: "url", label: "URL", placeholder: "Spotify URL" },
   { key: "artist", label: "Artist", placeholder: "Artist" },
-  { key: "trackName", label: "Track Name", placeholder: "Track Name" },
-  { key: "genre", label: "Genre", placeholder: "Genre" },
-  { key: "album", label: "Album", placeholder: "Album" },
-  { key: "releaseDate", label: "Release Date", placeholder: "YYYY-MM-DD" },
-  { key: "duration", label: "Duration", placeholder: "m:ss" },
-  { key: "explicit", label: "Explicit", placeholder: "Yes/No" },
-  { key: "popularity", label: "Popularity", placeholder: "0-100" }
+  { key: "trackName", label: "Track Name", placeholder: "Track Name" }
 ];
 
 function parseUrlsFromText(text) {
@@ -49,34 +27,7 @@ function normalizeImportedRow(row) {
   const trackName = String(
     row["Track Name"] ?? row.Track ?? row.trackName ?? row.track ?? ""
   ).trim();
-  const genre = String(row.Genre ?? row.genre ?? "").trim();
-  const album = String(row.Album ?? row.album ?? "").trim();
-  const releaseDate = String(
-    row["Release Date"] ?? row.releaseDate ?? row.release_date ?? ""
-  ).trim();
-  const duration = String(row.Duration ?? row.duration ?? "").trim();
-
-  const explicitRaw = row.Explicit ?? row.explicit ?? "";
-  const explicit =
-    typeof explicitRaw === "boolean"
-      ? explicitRaw
-        ? "Yes"
-        : "No"
-      : String(explicitRaw).trim();
-
-  const popularity = String(row.Popularity ?? row.popularity ?? "").trim();
-
-  return {
-    url,
-    artist,
-    trackName,
-    genre,
-    album,
-    releaseDate,
-    duration,
-    explicit,
-    popularity
-  };
+  return { url, artist, trackName };
 }
 
 function App() {
@@ -87,7 +38,11 @@ function App() {
   );
   const [isFilling, setIsFilling] = useState(false);
 
-  const apiBase = import.meta.env.VITE_API_BASE_URL ?? "";
+  const rawApiBase = String(import.meta.env.VITE_API_BASE_URL ?? "").trim();
+  const normalizedApiBase = rawApiBase.replace(/\/+$/, "");
+  const fillApiEndpoint = normalizedApiBase
+    ? `${normalizedApiBase}${normalizedApiBase.endsWith("/api") ? "" : "/api"}/fill-from-urls`
+    : "/api/fill-from-urls";
 
   const loadUrls = () => {
     const urls = parseUrlsFromText(pasteText);
@@ -126,17 +81,7 @@ function App() {
   const exportWorkbook = () => {
     const worksheetData = [
       HEADERS,
-      ...rows.map((row) => [
-        row.url,
-        row.artist,
-        row.trackName,
-        row.genre,
-        row.album,
-        row.releaseDate,
-        row.duration,
-        row.explicit,
-        row.popularity
-      ])
+      ...rows.map((row) => [row.url, row.artist, row.trackName])
     ];
     const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
     const workbook = XLSX.utils.book_new();
@@ -167,18 +112,7 @@ function App() {
       const rawRows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
       const importedRows = rawRows
         .map(normalizeImportedRow)
-        .filter(
-          (row) =>
-            row.url ||
-            row.artist ||
-            row.trackName ||
-            row.genre ||
-            row.album ||
-            row.releaseDate ||
-            row.duration ||
-            row.explicit ||
-            row.popularity
-        );
+        .filter((row) => row.url || row.artist || row.trackName);
 
       setRows(importedRows);
       setStatus(
@@ -213,13 +147,12 @@ function App() {
       const nextRows = rows.map((row) => ({ ...row }));
       let completed = 0;
       let updated = 0;
-      let extendedUpdated = 0;
       let failed = 0;
       let firstErrorMessage = "";
 
       for (const target of targets) {
         try {
-          const response = await fetch(`${apiBase}/api/fill-from-urls`, {
+          const response = await fetch(fillApiEndpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ urls: [target.url] })
@@ -247,41 +180,12 @@ function App() {
             nextRows[target.index] = {
               url: apiRow.url ?? nextRows[target.index].url,
               artist: apiRow.artist ?? nextRows[target.index].artist,
-              trackName: apiRow.track_name ?? nextRows[target.index].trackName,
-              genre: apiRow.genre ?? nextRows[target.index].genre,
-              album: apiRow.album ?? nextRows[target.index].album,
-              releaseDate:
-                apiRow.release_date ?? nextRows[target.index].releaseDate,
-              duration: apiRow.duration ?? nextRows[target.index].duration,
-              explicit: apiRow.explicit ?? nextRows[target.index].explicit,
-              popularity: apiRow.popularity ?? nextRows[target.index].popularity
+              trackName: apiRow.track_name ?? nextRows[target.index].trackName
             };
           }
 
-          if (
-            apiRow &&
-            (
-              apiRow.artist ||
-              apiRow.track_name ||
-              apiRow.genre ||
-              apiRow.album ||
-              apiRow.release_date ||
-              apiRow.duration ||
-              apiRow.explicit ||
-              apiRow.popularity
-            )
-          ) {
+          if (apiRow && (apiRow.artist || apiRow.track_name)) {
             updated += 1;
-            if (
-              apiRow.genre ||
-              apiRow.album ||
-              apiRow.release_date ||
-              apiRow.duration ||
-              apiRow.explicit ||
-              apiRow.popularity
-            ) {
-              extendedUpdated += 1;
-            }
           } else {
             failed += 1;
           }
@@ -303,11 +207,7 @@ function App() {
       }
 
       const summary = `Done. Processed ${targets.length} URL(s): ${updated} updated, ${failed} failed.`;
-      if (updated > 0 && extendedUpdated === 0) {
-        setStatus(
-          `${summary} Extended metadata (genre/album/etc.) was not available from the current backend source.`
-        );
-      } else if (updated === 0 && failed > 0 && firstErrorMessage) {
+      if (updated === 0 && failed > 0 && firstErrorMessage) {
         setStatus(`${summary} First error: ${firstErrorMessage}`);
       } else {
         setStatus(summary);
@@ -328,9 +228,8 @@ function App() {
         <h1>CSV Viewer / Editor for Spotify URLs</h1>
         <p>
           Paste newline-separated Spotify track URLs. The table starts with
-          columns <strong>URL</strong>, <strong>Artist</strong>,{" "}
-          <strong>Track Name</strong>, and auto-filled metadata like{" "}
-          <strong>Genre</strong>, <strong>Album</strong>, and more.
+          columns <strong>URL</strong>, <strong>Artist</strong>, and{" "}
+          <strong>Track Name</strong>.
         </p>
       </section>
 
@@ -374,7 +273,7 @@ function App() {
           </div>
           <div className="button-row">
             <button type="button" onClick={fillMetadata} disabled={isFilling}>
-              {isFilling ? "Filling..." : "Fill Metadata"}
+              {isFilling ? "Filling..." : "Fill Track + Artist"}
             </button>
             <button type="button" className="ghost" onClick={exportWorkbook} disabled={isFilling}>
               Export XLSX

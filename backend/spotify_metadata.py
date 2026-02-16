@@ -431,12 +431,6 @@ def fill_dataframe(df: pd.DataFrame, url_column: str = "Spotify URL") -> pd.Data
     out = df.copy()
     out["Track Name"] = [row["track_name"] for row in filled_rows]
     out["Artist"] = [row["artist"] for row in filled_rows]
-    out["Genre"] = [row["genre"] for row in filled_rows]
-    out["Album"] = [row["album"] for row in filled_rows]
-    out["Release Date"] = [row["release_date"] for row in filled_rows]
-    out["Duration"] = [row["duration"] for row in filled_rows]
-    out["Explicit"] = [row["explicit"] for row in filled_rows]
-    out["Popularity"] = [row["popularity"] for row in filled_rows]
     return out
 
 

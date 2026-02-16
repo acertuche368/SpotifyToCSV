@@ -6,16 +6,9 @@ This project gives you:
   - `URL`
   - `Artist`
   - `Track Name`
-  - `Genre`
-  - `Album`
-  - `Release Date`
-  - `Duration`
-  - `Explicit`
-  - `Popularity`
 - Paste support for newline-separated Spotify track URLs
 - CSV/XLSX import and XLSX export
-- A Python backend that fills metadata (no API keys required):
-  - `Artist`, `Track Name`, `Genre`, `Album`, `Release Date`, `Duration`, `Explicit`, `Popularity`
+- A Python backend that fills `Artist` + `Track Name` (no API keys required)
 
 ## 1) Install dependencies
 
@@ -33,14 +26,14 @@ source .venv/bin/activate
 pip install -r backend/requirements.txt
 ```
 
-Optional but recommended for full metadata (genre/album/release-date/duration/etc.):
+Optional Spotify credentials:
 
 ```bash
 export SPOTIFY_CLIENT_ID=your_spotify_client_id
 export SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 ```
 
-Without those env vars, backend falls back to embed scraping and can usually only fill `Track Name` + `Artist`.
+The app works without these env vars for `Track Name` + `Artist`.
 
 ## 2) Run the app
 
@@ -62,7 +55,7 @@ Open `http://localhost:5173`.
 ## 3) Use it
 
 1. Paste Spotify URLs (one per line) and click `Load URLs Into Table`.
-2. Click `Fill Metadata` to fetch metadata from Python backend.
+2. Click `Fill Track + Artist` to fetch metadata from Python backend.
 3. Edit any cell manually if needed.
 4. Click `Export XLSX` to download `spotify_tracks.xlsx`.
 
@@ -83,18 +76,12 @@ It outputs a new workbook with all existing columns preserved plus:
 
 - `Track Name`
 - `Artist`
-- `Genre`
-- `Album`
-- `Release Date`
-- `Duration`
-- `Explicit`
-- `Popularity`
 
 ## Notes
 
 - This uses Spotify public web endpoints (with fallback HTML scraping) and may require tweaks if Spotify changes their web format.
 - A small request delay is included to reduce rate limiting.
-- For Vercel: add `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` in Project Settings -> Environment Variables for full metadata in production.
+- For Vercel: if you set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`, backend can use Spotify API token flow when available.
 - For Vercel full-stack deploy in this repo:
   - Frontend calls `/api/fill-from-urls`
   - Python serverless API is provided in `api/index.py`
